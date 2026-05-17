@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Watchful</title>
+  <link rel="stylesheet" href="feed.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;1,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <div class="topbar">
+    <span class="wordmark">watchful</span>
+    <div class="search-wrap">
+      <input type="text" id="search-input" placeholder="search your subscriptions…" autocomplete="off" />
+      <svg class="search-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="8.5" cy="8.5" r="5.5"/><path d="M13.5 13.5L17 17"/>
+      </svg>
+    </div>
+    <div class="topbar-right">
+      <div id="filter-pills" class="filter-pills"></div>
+      <button class="settings-btn" id="open-settings" title="Settings">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" width="16" height="16">
+          <circle cx="10" cy="10" r="2.5"/>
+          <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.22 4.22l1.42 1.42M14.36 14.36l1.42 1.42M4.22 15.78l1.42-1.42M14.36 5.64l1.42-1.42"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <p class="section-label">subscriptions</p>
+      <ul class="channel-list" id="channel-list">
+        <li class="ch-skeleton"></li>
+        <li class="ch-skeleton"></li>
+        <li class="ch-skeleton"></li>
+        <li class="ch-skeleton"></li>
+        <li class="ch-skeleton"></li>
+      </ul>
+    </aside>
+
+    <main class="feed-area">
+      <div class="feed-header">
+        <p class="section-label" id="feed-label">latest</p>
+        <label class="unseen-toggle">
+          <input type="checkbox" id="unseen-only" /> unseen only
+        </label>
+      </div>
+      <div id="feed" class="feed"></div>
+      <div id="feed-status" class="feed-status"></div>
+    </main>
+  </div>
+
+  <!-- Video player overlay -->
+  <div class="player-overlay hidden" id="player-overlay">
+    <div class="player-wrap">
+      <div class="player-header">
+        <div>
+          <p class="player-channel" id="player-channel"></p>
+          <p class="player-title" id="player-title"></p>
+        </div>
+        <button class="player-close" id="player-close">✕</button>
+      </div>
+      <div class="player-iframe-wrap">
+        <iframe id="player-iframe" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture"></iframe>
+      </div>
+      <div class="player-footer">
+        <a class="player-yt-link" id="player-yt-link" target="_blank" rel="noopener noreferrer">open in youtube ↗</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings overlay -->
+  <div class="overlay hidden" id="settings-overlay">
+    <div class="settings-panel">
+      <div class="settings-header">
+        <span class="settings-title">settings</span>
+        <button class="close-btn" id="close-settings">✕</button>
+      </div>
+      <div class="settings-body">
+        <p class="settings-hint" style="margin-bottom:1rem;">Drag channels into categories in the sidebar.<br/>Category pills appear as filters in the header.</p>
+        <button class="save-btn" id="save-settings">refresh feed</button>
+
+        <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 0.5px solid var(--border);">
+          <p class="settings-label" style="margin-bottom: 0.5rem;">account</p>
+          <p class="settings-hint" id="account-email" style="margin-bottom: 1rem;">signed in</p>
+          <button class="switch-btn" id="switch-account">switch account ↗</button>
+        </div>
+
+        <p class="settings-error hidden" id="settings-error"></p>
+      </div>
+    </div>
+  </div>
+
+  <script src="feed.js"></script>
+</body>
+</html>

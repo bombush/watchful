@@ -1,0 +1,38 @@
+/* Hide all YouTube clutter on watch pages */
+
+/* Sidebar / recommendations */
+#secondary,
+#related,
+ytd-watch-next-secondary-results-renderer,
+#chat,
+ytd-live-chat-frame { display: none !important; }
+
+/* Comments */
+ytd-comments,
+#comments { display: none !important; }
+
+/* End cards / info cards */
+.ytp-ce-element,
+.ytp-cards-teaser,
+.ytp-cards-button { display: none !important; }
+
+/* Top navigation bar clutter */
+#masthead-ad,
+ytd-banner-promo-renderer,
+ytd-statement-banner-renderer,
+ytd-ad-slot-renderer,
+.ytd-promoted-sparkles-web-renderer { display: none !important; }
+
+/* Autoplay toggle */
+ytd-toggle-button-renderer[is-icon-button],
+.ytp-autonav-toggle-button-container { display: none !important; }
+
+/* Expand the video to use freed space */
+#primary {
+  max-width: 100% !important;
+}
+
+ytd-watch-flexy[theater] #player-theater-container,
+ytd-watch-flexy:not([theater]) #player {
+  max-width: 100% !important;
+}

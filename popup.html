@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <style>
+    body { width: 280px; font-family: 'Courier New', monospace; font-size: 13px; background: #faf9f6; color: #1a1916; padding: 16px; margin: 0; }
+    @media (prefers-color-scheme: dark) { body { background: #16150f; color: #f0ede4; } input { background: #1e1d16; color: #f0ede4; border-color: rgba(240,237,228,0.15); } }
+    h1 { font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: #a09e99; margin-bottom: 14px; }
+    label { display: block; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #a09e99; margin-bottom: 6px; margin-top: 14px; }
+    input { display: block; width: 100%; padding: 7px 10px; border: 0.5px solid rgba(26,25,22,0.18); border-radius: 6px; font-family: inherit; font-size: 12px; box-sizing: border-box; }
+    button { margin-top: 16px; width: 100%; padding: 9px; background: #1a1916; color: #faf9f6; border: none; border-radius: 20px; font-family: inherit; font-size: 11px; cursor: pointer; }
+    @media (prefers-color-scheme: dark) { button { background: #f0ede4; color: #16150f; } }
+    .hint { font-size: 10px; color: #a09e99; margin-top: 6px; line-height: 1.5; }
+    .saved { font-size: 11px; color: #1D9E75; margin-top: 8px; display: none; }
+  </style>
+</head>
+<body>
+  <h1>watchful</h1>
+  <label>OAuth Client ID</label>
+  <input type="text" id="clientId" placeholder="….apps.googleusercontent.com"/>
+  <p class="hint">From Google Cloud → APIs & Services → Credentials</p>
+  <label>Topics <span style="text-transform:none;letter-spacing:0">(comma separated)</span></label>
+  <input type="text" id="tags" placeholder="science, craft, lectures"/>
+  <button id="save">save</button>
+  <p class="saved" id="saved">✓ saved — reload youtube.com</p>
+  <script src="popup.js"></script>
+</body>
+</html>
