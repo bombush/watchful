@@ -80,8 +80,45 @@
         <button class="close-btn" id="close-settings">✕</button>
       </div>
       <div class="settings-body">
-        <p class="settings-hint" style="margin-bottom:1rem;">Drag channels into categories in the sidebar.<br/>Category pills appear as filters in the header.</p>
-        <button class="save-btn" id="save-settings">refresh feed</button>
+        <label class="settings-label" style="margin-top:0">videos per channel</label>
+        <input type="number" id="vids-per-channel" class="settings-input" min="1" max="50" value="5" style="width:80px;" />
+        <p class="settings-hint">Number of recent videos to fetch from each subscription (1–50).</p>
+
+        <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 0.5px solid var(--border);">
+          <label class="settings-label">add playlist</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input type="text" id="playlist-name-input" class="settings-input" placeholder="my playlist name" style="flex:1;" />
+            <button class="switch-btn" id="add-playlist-btn">add</button>
+          </div>
+          <p class="settings-hint">Enter the exact name of one of your YouTube playlists.</p>
+          <p class="settings-error hidden" id="playlist-error"></p>
+          <ul class="playlist-list" id="playlist-list"></ul>
+        </div>
+
+        <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 0.5px solid var(--border);">
+          <label class="settings-label">focus mode on watch pages</label>
+          <label class="unseen-toggle" style="margin-top:6px;">
+            <input type="checkbox" id="focus-mode-enabled" /> hide sidebar, comments &amp; end cards on YouTube
+          </label>
+          <p class="settings-hint" style="margin-top:6px;">When disabled, Watchful won't touch YouTube watch pages at all.</p>
+        </div>
+
+        <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 0.5px solid var(--border);">
+          <label class="settings-label">export / import</label>
+          <p class="settings-hint" style="margin-bottom:0.75rem;">Backup or restore your categories, playlists, and preferences.</p>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="switch-btn" id="export-settings-btn">export json ↓</button>
+            <button class="switch-btn" id="import-settings-btn">import json ↑</button>
+          </div>
+          <input type="file" id="import-file-input" accept=".json" style="display:none;" />
+          <p class="settings-error hidden" id="import-error"></p>
+          <p class="settings-hint hidden" id="import-success" style="color:#1D9E75; margin-top:8px;"></p>
+        </div>
+
+        <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 0.5px solid var(--border);">
+          <p class="settings-hint" style="margin-bottom:1rem;">Drag channels into categories in the sidebar.<br/>Category pills appear as filters in the header.</p>
+          <button class="save-btn" id="save-settings">save settings</button>
+        </div>
 
         <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 0.5px solid var(--border);">
           <p class="settings-label" style="margin-bottom: 0.5rem;">account</p>

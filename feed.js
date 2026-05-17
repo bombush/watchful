@@ -6,18 +6,27 @@ const CACHE_KEY = 'watchful_feed_cache';
 const SEEN_KEY = 'watchful_seen';
 const TOKEN_KEY = 'watchful_token';
 const CAT_KEY = 'watchful_categories';
+const PL_KEY = 'watchful_playlists';
+const VPC_KEY = 'watchful_vids_per_channel';
+const FOCUS_KEY = 'watchful_focus_enabled';
 const CACHE_TTL = 15 * 60 * 1000;
 
 let allVideos = [], allChannels = [];
-let activeChannel = null, activeCategory = 'all', searchQuery = '';
+let activeChannel = null, activeCategory = 'all', activePlaylist = null, searchQuery = '';
 let authToken = null, settings = {};
 let categories = []; // tree: [{name, channelIds, collapsed, children:[...]}]
+let playlists = []; // [{id, name, itemCount}]
+let vidsPerChannel = 5;
+let focusEnabled = true; // whether watch page focus mode is active
 
 // ── Init ────────────────────────────────────────────────────────────────────
 
 async function init() {
   settings = await getSettings();
   categories = await loadCategories();
+  playlists = await loadPlaylists();
+  vidsPerChannel = await loadVidsPerChannel();
+  focusEnabled = await loadFocusEnabled();
   renderFilterPills();
   renderSkeletons();
   await loadFeed();
@@ -25,6 +34,34 @@ async function init() {
 
 async function getSettings() {
   return new Promise(r => chrome.storage.sync.get(['tags','clientId'], d => r({tags:d.tags||'', clientId:d.clientId||''})));
+}
+async function loadPlaylists() {
+  return new Promise(r => chrome.storage.local.get([PL_KEY], d => r(d[PL_KEY] || [])));
+}
+async function savePlaylists() {
+  await new Promise(r => chrome.storage.local.set({[PL_KEY]:playlists}, r));
+}
+async function loadVidsPerChannel() {
+  return new Promise(r => chrome.storage.local.get([VPC_KEY], d => r(d[VPC_KEY] || 5)));
+}
+async function saveVidsPerChannel() {
+  await new Promise(r => chrome.storage.local.set({[VPC_KEY]:vidsPerChannel}, r));
+}
+async function loadFocusEnabled() {
+  return new Promise(r => chrome.storage.local.get([FOCUS_KEY], d => r(d[FOCUS_KEY] === true)));
+}
+async function saveFocusEnabled() {
+  await new Promise(r => chrome.storage.local.set({[FOCUS_KEY]:focusEnabled}, r));
+  // Notify open YouTube watch tabs (only works if running in extension page context)
+  try {
+    if (chrome.tabs && chrome.tabs.query) {
+      chrome.tabs.query({url:'https://www.youtube.com/watch*'}, tabs => {
+        for (const tab of tabs) {
+          chrome.tabs.sendMessage(tab.id, {type:'watchful_focus_enabled', enabled:focusEnabled}).catch(()=>{});
+        }
+      });
+    }
+  } catch(_) {}
 }
 async function loadCategories() {
   return new Promise(r => chrome.storage.local.get([CAT_KEY], d => {
@@ -204,6 +241,49 @@ function moveCategoryTo(sourcePath, targetPath) {
   saveCategories(); renderSidebar(); renderFilterPills();
 }
 
+// ── Playlist functions ───────────────────────────────────────────────────────
+
+async function searchUserPlaylists(name) {
+  // Fetch all user playlists and find by name (case-insensitive)
+  const allPl = []; let pageToken = '';
+  do {
+    const params = {part:'snippet', mine:true, maxResults:50};
+    if (pageToken) params.pageToken = pageToken;
+    const data = await apiGet('playlists', params);
+    for (const item of data.items||[]) allPl.push({id:item.id, name:item.snippet.title});
+    pageToken = data.nextPageToken||'';
+  } while(pageToken);
+  return allPl.find(p => p.name.toLowerCase() === name.toLowerCase()) || null;
+}
+
+async function fetchPlaylistVideos(playlistId) {
+  // Fetch ALL videos in a playlist (no limit)
+  const videos = []; let pageToken = '';
+  do {
+    const params = {part:'snippet,contentDetails', playlistId, maxResults:50};
+    if (pageToken) params.pageToken = pageToken;
+    const data = await apiGet('playlistItems', params);
+    const videoIds = (data.items||[]).map(i=>i.contentDetails.videoId).filter(Boolean);
+    if (videoIds.length) {
+      // Batch video details in groups of 50
+      const vidData = await apiGet('videos', {part:'snippet,contentDetails', id:videoIds.join(',')});
+      for (const v of (vidData.items||[])) {
+        videos.push({
+          id:v.id, channelId:v.snippet.channelId, title:v.snippet.title,
+          description:v.snippet.description?.slice(0,200)||'',
+          thumbnail:v.snippet.thumbnails?.medium?.url||v.snippet.thumbnails?.default?.url||'',
+          publishedAt:v.snippet.publishedAt,
+          duration:parseDuration(v.contentDetails?.duration||''),
+          url:`https://www.youtube.com/watch?v=${v.id}`,
+          playlistId, // tag so we can filter by playlist
+        });
+      }
+    }
+    pageToken = data.nextPageToken||'';
+  } while(pageToken);
+  return videos;
+}
+
 // ── OAuth ───────────────────────────────────────────────────────────────────
 
 async function getAuthToken(interactive=true) {
@@ -300,11 +380,26 @@ async function refreshFeed() {
     setFeedStatus(`fetching videos from ${allChannels.length} channels…`);
     const BATCH=5; allVideos=[];
     for (let i=0; i<allChannels.length; i+=BATCH) {
-      const results = await Promise.allSettled(allChannels.slice(i,i+BATCH).map(ch=>fetchChannelUploads(ch.id,5)));
+      const results = await Promise.allSettled(allChannels.slice(i,i+BATCH).map(ch=>fetchChannelUploads(ch.id, vidsPerChannel)));
       for (const r of results) if (r.status==='fulfilled') allVideos.push(...r.value);
       setFeedStatus(`loaded ${Math.min(i+BATCH,allChannels.length)} / ${allChannels.length} channels…`);
     }
+
+    // Fetch playlist videos (all items, no limit)
+    if (playlists.length) {
+      setFeedStatus('fetching playlists…');
+      for (const pl of playlists) {
+        try {
+          const vids = await fetchPlaylistVideos(pl.id);
+          allVideos.push(...vids);
+        } catch(_) {}
+      }
+    }
+
     allVideos.sort((a,b)=>new Date(b.publishedAt)-new Date(a.publishedAt));
+    // Deduplicate (a video might be in a playlist AND a channel upload)
+    const seen = new Set(); allVideos = allVideos.filter(v => { if (seen.has(v.id)) return false; seen.add(v.id); return true; });
+
     await setCache({videos:allVideos, channels:allChannels});
     setFeedStatus(''); renderFeed();
   } catch(e) { showError(e.message); }
@@ -359,6 +454,36 @@ function renderSidebar() {
     if (name && name.trim()) addCategory(name.trim().toLowerCase());
   });
   list.appendChild(addBtn);
+
+  // Playlists section
+  if (playlists.length) {
+    const plHeader = document.createElement('li');
+    plHeader.className = 'cat-group';
+    const ph = document.createElement('div');
+    ph.className = 'cat-header cat-header-uncat';
+    ph.innerHTML = '<span class="cat-label" style="color:var(--text3)">playlists</span>';
+    plHeader.appendChild(ph);
+    list.appendChild(plHeader);
+
+    for (const pl of playlists) {
+      const li = document.createElement('li');
+      li.className = 'channel-item' + (activePlaylist===pl.id ? ' active' : '');
+      const av = document.createElement('div');
+      av.className = 'ch-avatar ch-avatar-playlist';
+      av.textContent = '▶';
+      const nm = document.createElement('span');
+      nm.className = 'ch-name';
+      nm.textContent = pl.name;
+      li.appendChild(av); li.appendChild(nm);
+      li.addEventListener('click', () => {
+        activePlaylist = pl.id; activeChannel = null; activeCategory = null;
+        document.querySelectorAll('.channel-item,.cat-header').forEach(el=>el.classList.remove('active'));
+        li.classList.add('active');
+        renderFeed();
+      });
+      list.appendChild(li);
+    }
+  }
 }
 
 function renderCatTree(tree, container, parentPath, depth = 0) {
@@ -420,7 +545,7 @@ function renderCatTree(tree, container, parentPath, depth = 0) {
 
     // Click = filter
     header.addEventListener('click', () => {
-      activeChannel = null; activeCategory = path;
+      activeChannel = null; activePlaylist = null; activeCategory = path;
       document.querySelectorAll('.channel-item,.cat-header').forEach(el=>el.classList.remove('active'));
       header.classList.add('active');
       renderFeed();
@@ -524,6 +649,7 @@ function makeChannelItem(id, name, avatar, isActive) {
   li.appendChild(av); li.appendChild(nm);
   li.addEventListener('click', () => {
     activeChannel = id;
+    activePlaylist = null;
     activeCategory = id ? (getChannelCategoryPath(id) || 'all') : 'all';
     document.querySelectorAll('.channel-item,.cat-header').forEach(el=>el.classList.remove('active'));
     li.classList.add('active'); renderFeed();
@@ -540,7 +666,9 @@ async function renderFeed() {
   const channelMap = new Map(allChannels.map(c=>[c.id,c]));
   let videos = allVideos;
 
-  if (activeChannel) {
+  if (activePlaylist) {
+    videos = videos.filter(v=>v.playlistId===activePlaylist);
+  } else if (activeChannel) {
     videos = videos.filter(v=>v.channelId===activeChannel);
   } else if (activeCategory && activeCategory !== 'all') {
     const ids = new Set(getCategoryChannelIds(activeCategory));
@@ -631,7 +759,33 @@ async function showCurrentAccount() {
   } catch(_) {}
 }
 
-function openSettings() { document.getElementById('settings-overlay').classList.remove('hidden'); showCurrentAccount(); }
+function openSettings() {
+  document.getElementById('settings-overlay').classList.remove('hidden');
+  document.getElementById('vids-per-channel').value = vidsPerChannel;
+  document.getElementById('focus-mode-enabled').checked = focusEnabled;
+  renderPlaylistList();
+  showCurrentAccount();
+}
+function closeSettings() { document.getElementById('settings-overlay').classList.add('hidden'); }
+
+function renderPlaylistList() {
+  const list = document.getElementById('playlist-list');
+  list.innerHTML = '';
+  for (const pl of playlists) {
+    const li = document.createElement('li');
+    li.className = 'playlist-item';
+    li.innerHTML = `<span class="playlist-item-name">${escHtml(pl.name)}</span>`;
+    const rm = document.createElement('button');
+    rm.className = 'playlist-item-remove';
+    rm.textContent = '✕';
+    rm.addEventListener('click', () => {
+      playlists = playlists.filter(p=>p.id!==pl.id);
+      savePlaylists(); renderPlaylistList(); renderSidebar();
+    });
+    li.appendChild(rm);
+    list.appendChild(li);
+  }
+}
 function closeSettings() { document.getElementById('settings-overlay').classList.add('hidden'); }
 
 document.getElementById('open-settings').addEventListener('click', openSettings);
@@ -639,9 +793,70 @@ document.getElementById('close-settings').addEventListener('click', closeSetting
 document.getElementById('settings-overlay').addEventListener('click', e => { if (e.target===document.getElementById('settings-overlay')) closeSettings(); });
 
 document.getElementById('save-settings').addEventListener('click', async () => {
-  closeSettings();
-  await new Promise(r=>chrome.storage.local.remove([CACHE_KEY],r));
-  renderSkeletons(); await loadFeed();
+  const btn = document.getElementById('save-settings');
+  btn.textContent = 'saving…';
+  btn.disabled = true;
+
+  try {
+    const vpc = parseInt(document.getElementById('vids-per-channel').value) || 5;
+    vidsPerChannel = Math.max(1, Math.min(50, vpc));
+    await saveVidsPerChannel();
+
+    focusEnabled = document.getElementById('focus-mode-enabled').checked;
+    await saveFocusEnabled();
+
+    btn.textContent = '✓ saved';
+    setTimeout(() => { btn.textContent = 'save settings'; btn.disabled = false; }, 1200);
+
+    closeSettings();
+    await new Promise(r => chrome.storage.local.remove([CACHE_KEY], r));
+    renderSkeletons();
+    await loadFeed();
+  } catch(e) {
+    btn.textContent = 'error — try again';
+    btn.disabled = false;
+    console.error('Watchful save error:', e);
+  }
+});
+
+document.getElementById('add-playlist-btn').addEventListener('click', async () => {
+  const input = document.getElementById('playlist-name-input');
+  const errEl = document.getElementById('playlist-error');
+  const name = input.value.trim();
+  errEl.classList.add('hidden');
+
+  if (!name) { errEl.textContent = 'Enter a playlist name.'; errEl.classList.remove('hidden'); return; }
+  if (playlists.some(p=>p.name.toLowerCase()===name.toLowerCase())) {
+    errEl.textContent = 'Playlist already added.'; errEl.classList.remove('hidden'); return;
+  }
+
+  if (!authToken) {
+    try { authToken = await getAuthToken(true); } catch(_) {
+      errEl.textContent = 'Not signed in.'; errEl.classList.remove('hidden'); return;
+    }
+  }
+
+  try {
+    errEl.textContent = ''; errEl.classList.add('hidden');
+    input.disabled = true;
+    const found = await searchUserPlaylists(name);
+    input.disabled = false;
+    if (!found) {
+      errEl.textContent = `No playlist named "${name}" found in your account.`;
+      errEl.classList.remove('hidden');
+      return;
+    }
+    playlists.push({id:found.id, name:found.name});
+    await savePlaylists();
+    input.value = '';
+    renderPlaylistList();
+    renderSidebar();
+    // Clear cache so playlist videos get fetched on next refresh
+    await new Promise(r=>chrome.storage.local.remove([CACHE_KEY],r));
+  } catch(e) {
+    input.disabled = false;
+    errEl.textContent = `Error: ${e.message}`; errEl.classList.remove('hidden');
+  }
 });
 
 document.getElementById('switch-account').addEventListener('click', async () => {
@@ -679,6 +894,81 @@ function timeAgo(iso) {
 }
 function escHtml(str) { return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function openPlayer(video) { window.open(video.url, '_blank'); }
+
+// ── Export / Import ──────────────────────────────────────────────────────────
+
+document.getElementById('export-settings-btn').addEventListener('click', () => {
+  const data = {
+    _watchful_version: 1,
+    exported_at: new Date().toISOString(),
+    categories,
+    playlists,
+    vids_per_channel: vidsPerChannel,
+    focus_enabled: focusEnabled,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `watchful-settings-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('import-settings-btn').addEventListener('click', () => {
+  document.getElementById('import-file-input').click();
+});
+
+document.getElementById('import-file-input').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  const errEl = document.getElementById('import-error');
+  const okEl = document.getElementById('import-success');
+  errEl.classList.add('hidden');
+  okEl.classList.add('hidden');
+  e.target.value = ''; // reset so same file can be picked again
+
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+
+    if (!data._watchful_version) throw new Error('Not a valid Watchful settings file.');
+
+    // Validate structure loosely
+    if (data.categories && !Array.isArray(data.categories)) throw new Error('Invalid categories format.');
+    if (data.playlists && !Array.isArray(data.playlists)) throw new Error('Invalid playlists format.');
+
+    // Migrate imported categories to ensure children arrays exist
+    function migrate(list) {
+      for (const c of list) { if (!c.children) c.children = []; migrate(c.children); }
+      return list;
+    }
+
+    if (data.categories) { categories = migrate(data.categories); await saveCategories(); }
+    if (data.playlists) { playlists = data.playlists; await savePlaylists(); }
+    if (data.vids_per_channel) {
+      vidsPerChannel = Math.max(1, Math.min(50, parseInt(data.vids_per_channel) || 5));
+      await saveVidsPerChannel();
+      document.getElementById('vids-per-channel').value = vidsPerChannel;
+    }
+    if (data.focus_enabled !== undefined) {
+      focusEnabled = !!data.focus_enabled;
+      await saveFocusEnabled();
+      document.getElementById('focus-mode-enabled').checked = focusEnabled;
+    }
+
+    renderFilterPills();
+    renderSidebar();
+    renderPlaylistList();
+
+    okEl.textContent = `✓ imported ${categories.length} categories, ${playlists.length} playlists.`;
+    okEl.classList.remove('hidden');
+  } catch (err) {
+    errEl.textContent = `Import failed: ${err.message}`;
+    errEl.classList.remove('hidden');
+  }
+});
 
 // ── Start ───────────────────────────────────────────────────────────────────
 

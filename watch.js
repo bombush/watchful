@@ -1,22 +1,56 @@
-// Runs on youtube.com/watch pages — hides clutter, keeps just the video
+// Watchful — watch.js
+// Toggles body.watchful-focus class; CSS does all the hiding
 
-function clean() {
-  const hide = [
-    '#secondary', '#related', '#comments', 'ytd-comments',
-    '#chat', 'ytd-live-chat-frame', '#masthead-ad',
-    'ytd-banner-promo-renderer', 'ytd-ad-slot-renderer',
-    '.ytp-ce-element', '.ytp-cards-button',
-    'ytd-watch-next-secondary-results-renderer',
-  ];
-  for (const sel of hide) {
-    document.querySelectorAll(sel).forEach(el => el.style.setProperty('display', 'none', 'important'));
-  }
+const FOCUS_ON_KEY = 'watchful_focus_on';
+let focusOn = localStorage.getItem(FOCUS_ON_KEY) !== 'false';
+let featureEnabled = false;
+let btn = null;
+
+function applyFocus() {
+  document.body.classList.toggle('watchful-focus', featureEnabled && focusOn);
+  if (!btn) return;
+  btn.textContent = focusOn ? 'focus on' : 'focus off';
+  btn.classList.toggle('focus-active', focusOn);
+  btn.style.display = featureEnabled ? '' : 'none';
 }
 
-// Run immediately and again after YouTube's JS renders content
-clean();
-const observer = new MutationObserver(clean);
-observer.observe(document.body, { childList: true, subtree: true });
+function injectButton() {
+  if (document.getElementById('watchful-toggle')) {
+    btn = document.getElementById('watchful-toggle'); return;
+  }
+  btn = document.createElement('button');
+  btn.id = 'watchful-toggle';
+  btn.style.display = featureEnabled ? '' : 'none';
+  btn.addEventListener('click', () => {
+    focusOn = !focusOn;
+    localStorage.setItem(FOCUS_ON_KEY, focusOn);
+    applyFocus();
+  });
+  document.body.appendChild(btn);
+  applyFocus();
+}
 
-// Stop observing after 10s to avoid performance hit
-setTimeout(() => observer.disconnect(), 10000);
+function setup() {
+  chrome.storage.local.get(['watchful_focus_enabled'], d => {
+    featureEnabled = d.watchful_focus_enabled === true;
+    injectButton();
+    applyFocus();
+  });
+}
+
+chrome.runtime.onMessage.addListener(msg => {
+  if (msg.type !== 'watchful_focus_enabled') return;
+  featureEnabled = msg.enabled;
+  applyFocus();
+});
+
+if (document.body) { setup(); }
+else { document.addEventListener('DOMContentLoaded', setup); }
+
+document.addEventListener('yt-navigate-finish', () => {
+  if (window.location.pathname === '/watch') {
+    btn = document.getElementById('watchful-toggle');
+    if (!btn) injectButton();
+    else applyFocus();
+  }
+});

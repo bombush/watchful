@@ -1,38 +1,71 @@
-/* Hide all YouTube clutter on watch pages */
+/* Watchful — watch.css */
+
+/* ── Focus mode ─────────────────────────────────────────────────────────────
+   Hide everything around the video without touching the player itself.
+   Uses display:none on specific containers — not visibility tricks.        */
 
 /* Sidebar / recommendations */
-#secondary,
-#related,
-ytd-watch-next-secondary-results-renderer,
-#chat,
-ytd-live-chat-frame { display: none !important; }
+body.watchful-focus #secondary { display: none !important; }
 
 /* Comments */
-ytd-comments,
-#comments { display: none !important; }
+body.watchful-focus #comments { display: none !important; }
+body.watchful-focus ytd-comments { display: none !important; }
 
-/* End cards / info cards */
-.ytp-ce-element,
-.ytp-cards-teaser,
-.ytp-cards-button { display: none !important; }
+/* Everything below the video in the left column */
+body.watchful-focus #below { display: none !important; }
 
-/* Top navigation bar clutter */
-#masthead-ad,
-ytd-banner-promo-renderer,
-ytd-statement-banner-renderer,
-ytd-ad-slot-renderer,
-.ytd-promoted-sparkles-web-renderer { display: none !important; }
+/* Top navigation bar */
+body.watchful-focus #masthead-container { display: none !important; }
 
-/* Autoplay toggle */
-ytd-toggle-button-renderer[is-icon-button],
-.ytp-autonav-toggle-button-container { display: none !important; }
+/* Chat (livestreams) */
+body.watchful-focus #chat-container { display: none !important; }
 
-/* Expand the video to use freed space */
-#primary {
+/* Give the video column all available space */
+body.watchful-focus ytd-watch-flexy[flexy] #primary {
   max-width: 100% !important;
 }
 
-ytd-watch-flexy[theater] #player-theater-container,
-ytd-watch-flexy:not([theater]) #player {
-  max-width: 100% !important;
+/* Remove the top margin left by hiding the masthead */
+body.watchful-focus ytd-page-manager {
+  margin-top: 0 !important;
+}
+
+/* ── Toggle button ──────────────────────────────────────────────────────── */
+
+#watchful-toggle {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 99999;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  padding: 7px 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(20, 19, 15, 0.85);
+  color: #6b6860;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: color 0.15s, border-color 0.15s, opacity 0.15s;
+  user-select: none;
+  opacity: 0.35;
+}
+
+#watchful-toggle:hover {
+  border-color: rgba(255,255,255,0.3);
+  color: #f0ede4;
+  opacity: 1;
+}
+
+#watchful-toggle.focus-active {
+  color: #1D9E75;
+  border-color: rgba(29, 158, 117, 0.4);
+  opacity: 0.6;
+}
+
+#watchful-toggle.focus-active:hover {
+  border-color: rgba(29, 158, 117, 0.7);
+  opacity: 1;
 }

@@ -5,15 +5,18 @@
   "description": "Replace the YouTube homepage with a calm, intentional feed from your subscriptions.",
   "permissions": [
     "storage",
-    "identity"
+    "identity",
+    "tabs"
   ],
   "host_permissions": [
     "https://www.youtube.com/*",
     "https://www.googleapis.com/*"
   ],
-"oauth2": {
-    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
-    "scopes": ["https://www.googleapis.com/auth/youtube.readonly"]
+  "oauth2": {
+    "client_id": "PASTE_YOUR_CLIENT_ID_HERE.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/youtube.readonly"
+    ]
   },
   "content_scripts": [
     {

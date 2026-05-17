@@ -433,6 +433,9 @@ html, body {
   border-radius: var(--radius-lg);
   width: 480px;
   max-width: 92vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .settings-header {
@@ -441,6 +444,7 @@ html, body {
   justify-content: space-between;
   padding: 18px 24px 16px;
   border-bottom: 0.5px solid var(--border);
+  flex-shrink: 0;
 }
 
 .settings-title {
@@ -462,7 +466,7 @@ html, body {
 }
 .close-btn:hover { color: var(--text); }
 
-.settings-body { padding: 20px 24px 24px; }
+.settings-body { padding: 20px 24px 24px; overflow-y: auto; flex: 1; }
 
 .settings-label {
   display: block;
@@ -773,3 +777,53 @@ html, body {
 .cat-header[draggable="true"] { cursor: grab; }
 .cat-header[draggable="true"]:active { cursor: grabbing; }
 .cat-header.dragging { opacity: 0.3; }
+
+/* ── Playlist list in settings ─────────────────────────────────────────────── */
+
+.playlist-list {
+  list-style: none;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.playlist-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg2);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text2);
+}
+
+.playlist-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.playlist-item-count {
+  font-size: 9px;
+  color: var(--text3);
+  background: var(--bg3);
+  border-radius: 8px;
+  padding: 1px 6px;
+}
+
+.playlist-item-remove {
+  background: none;
+  border: none;
+  color: var(--text3);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0 2px;
+  transition: color 0.12s;
+}
+.playlist-item-remove:hover { color: var(--accent); }
+
+/* Playlist icon in sidebar */
+.ch-avatar-playlist {
+  background: var(--bg3);
+  color: var(--text3);
+  font-size: 11px;
+}
