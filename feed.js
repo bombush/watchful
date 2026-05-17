@@ -259,13 +259,19 @@ async function searchUserPlaylists(name) {
 async function fetchPlaylistVideos(playlistId) {
   // Fetch ALL videos in a playlist (no limit)
   const videos = []; let pageToken = '';
+  // Build a map of videoId -> playlistItemId for deletion later
+  const itemIdMap = {};
   do {
     const params = {part:'snippet,contentDetails', playlistId, maxResults:50};
     if (pageToken) params.pageToken = pageToken;
     const data = await apiGet('playlistItems', params);
-    const videoIds = (data.items||[]).map(i=>i.contentDetails.videoId).filter(Boolean);
+    const items = data.items || [];
+    // Store playlistItemId for each video
+    for (const item of items) {
+      itemIdMap[item.contentDetails.videoId] = item.id;
+    }
+    const videoIds = items.map(i=>i.contentDetails.videoId).filter(Boolean);
     if (videoIds.length) {
-      // Batch video details in groups of 50
       const vidData = await apiGet('videos', {part:'snippet,contentDetails', id:videoIds.join(',')});
       for (const v of (vidData.items||[])) {
         videos.push({
@@ -275,13 +281,28 @@ async function fetchPlaylistVideos(playlistId) {
           publishedAt:v.snippet.publishedAt,
           duration:parseDuration(v.contentDetails?.duration||''),
           url:`https://www.youtube.com/watch?v=${v.id}`,
-          playlistId, // tag so we can filter by playlist
+          playlistId,
+          playlistItemId: itemIdMap[v.id] || null,
         });
       }
     }
     pageToken = data.nextPageToken||'';
   } while(pageToken);
   return videos;
+}
+
+async function removeFromPlaylist(playlistItemId) {
+  if (!authToken) throw new Error('Not authenticated');
+  const url = new URL(`${YT_API}/playlistItems`);
+  url.searchParams.set('id', playlistItemId);
+  const res = await fetch(url.toString(), {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${authToken}` }
+  });
+  if (!res.ok && res.status !== 204) {
+    const err = await res.json().catch(()=>({}));
+    throw new Error(err?.error?.message || `API error ${res.status}`);
+  }
 }
 
 // ── OAuth ───────────────────────────────────────────────────────────────────
@@ -690,6 +711,9 @@ async function renderFeed() {
 }
 
 function makeVideoRow(video, channelName, isSeen) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'video-row-wrap';
+
   const a = document.createElement('a');
   a.className = 'video-row'; a.href = '#';
   a.addEventListener('click', e => { e.preventDefault(); markSeen(video.id); openPlayer(video, channelName); });
@@ -709,7 +733,33 @@ function makeVideoRow(video, channelName, isSeen) {
       ${!isSeen ? '<div class="video-unseen" title="unseen"></div>' : ''}
     </div>`;
   a.appendChild(thumb); a.appendChild(meta);
-  return a;
+  wrapper.appendChild(a);
+
+  // Remove from playlist button — only shown when viewing a playlist
+  if (video.playlistItemId && activePlaylist) {
+    const rmBtn = document.createElement('button');
+    rmBtn.className = 'pl-remove-btn';
+    rmBtn.title = 'Remove from playlist';
+    rmBtn.textContent = '✕';
+    rmBtn.addEventListener('click', async e => {
+      e.stopPropagation();
+      rmBtn.disabled = true;
+      rmBtn.textContent = '…';
+      try {
+        await removeFromPlaylist(video.playlistItemId);
+        // Remove from local cache too
+        allVideos = allVideos.filter(v => v.playlistItemId !== video.playlistItemId);
+        wrapper.remove();
+      } catch(err) {
+        rmBtn.textContent = '✕';
+        rmBtn.disabled = false;
+        rmBtn.title = `Error: ${err.message}`;
+      }
+    });
+    wrapper.appendChild(rmBtn);
+  }
+
+  return wrapper;
 }
 
 function renderFilterPills() {
