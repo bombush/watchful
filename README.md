@@ -129,6 +129,20 @@ Settings → Export JSON saves all your categories, playlists, and preferences t
 
 ---
 
+## Testing
+
+The category tree logic lives in `categories.js` as a pure ES module with no Chrome API or DOM dependencies. Tests use [Vitest](https://vitest.dev/) and require Node.js.
+
+```bash
+npm install
+npm test          # run once
+npm run test:watch  # re-run on file changes
+```
+
+The test file is `categories.test.js`. It covers tree queries, collapsed-path remapping, and all mutation operations (add, remove, rename, move channel, move category).
+
+---
+
 ## API quota
 
 The YouTube Data API v3 free quota is **10,000 units/day**. Fetching subscriptions + recent videos costs roughly 2–4 units per channel. With 50 subscriptions and 5 videos per channel, a full refresh costs ~250 units — well within the free limit. The feed caches for 15 minutes to minimize API calls.

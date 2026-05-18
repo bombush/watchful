@@ -1,0 +1,1 @@
+Run `deploy.ps1` from the project root using the PowerShell tool to copy the extension files to the Deploy folder. Show the script output. After it completes, remind the user to reload the extension in Chrome if it was already loaded (chrome://extensions → click the reload icon on Watchful).

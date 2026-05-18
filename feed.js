@@ -1,5 +1,13 @@
 // Watchful — feed.js
-// Categories are a tree: [{name, channelIds, collapsed, children:[...]}]
+// Categories are a tree: [{name, channelIds, children:[...]}]
+
+import {
+  escRegex, findCatByPath, getCatPath, findCatParent,
+  getAllChannelIds, allAssignedIds, flattenCats, getChannelCategoryPath,
+  updateCollapsedPathPrefix, removeCollapsedPath,
+  addCategoryToTree, removeCategoryFromTree, renameCategoryInTree,
+  moveChannelInTree, moveCategoryInTree,
+} from './categories.js';
 
 const YT_API = 'https://www.googleapis.com/youtube/v3';
 const CACHE_KEY = 'watchful_feed_cache';
@@ -102,142 +110,43 @@ async function loadCollapsedPaths() {
 async function saveCollapsedPaths() {
   await new Promise(r => chrome.storage.local.set({[COLLAPSED_KEY]: [...collapsedPaths]}, r));
 }
-function updateCollapsedPathPrefix(oldPrefix, newPrefix) {
-  const affected = [...collapsedPaths].filter(p => p === oldPrefix || p.startsWith(oldPrefix + '/'));
-  for (const p of affected) {
-    collapsedPaths.delete(p);
-    collapsedPaths.add(newPrefix + p.slice(oldPrefix.length));
-  }
-}
 
-// ── Category tree helpers ───────────────────────────────────────────────────
+// ── Category action wrappers (call pure functions then persist + re-render) ──
 
-// Find a category by path (e.g. "science" or "science/physics")
-function findCatByPath(path) {
-  const parts = path.split('/');
-  let list = categories;
-  let node = null;
-  for (const p of parts) {
-    node = list.find(c => c.name === p);
-    if (!node) return null;
-    list = node.children;
-  }
-  return node;
-}
-
-// Get full path of a category node by searching the tree
-function getCatPath(node, tree = categories, prefix = '') {
-  for (const c of tree) {
-    const path = prefix ? `${prefix}/${c.name}` : c.name;
-    if (c === node) return path;
-    const found = getCatPath(node, c.children, path);
-    if (found) return found;
-  }
-  return null;
-}
-
-// Find parent list and index of a category by path
-function findCatParent(path) {
-  const parts = path.split('/');
-  const name = parts.pop();
-  let list = categories;
-  for (const p of parts) {
-    const parent = list.find(c => c.name === p);
-    if (!parent) return null;
-    list = parent.children;
-  }
-  const idx = list.findIndex(c => c.name === name);
-  return idx >= 0 ? {list, idx, name} : null;
-}
-
-// Collect all channel IDs from a category and its descendants
-function getAllChannelIds(cat) {
-  let ids = [...(cat.channelIds || [])];
-  for (const child of (cat.children || [])) ids.push(...getAllChannelIds(child));
-  return ids;
-}
-
-// Collect all assigned channel IDs across entire tree
-function allAssignedIds(tree = categories) {
-  let ids = [];
-  for (const c of tree) { ids.push(...(c.channelIds||[])); ids.push(...allAssignedIds(c.children)); }
-  return ids;
-}
-
-// Build flat list of {path, cat} for all categories
-function flattenCats(tree = categories, prefix = '') {
-  let result = [];
-  for (const c of tree) {
-    const path = prefix ? `${prefix}/${c.name}` : c.name;
-    result.push({path, cat:c});
-    result.push(...flattenCats(c.children, path));
-  }
-  return result;
-}
-
-// Get channel IDs for a filter path (includes children)
 function getCategoryChannelIds(path) {
-  if (path === 'all') return allChannels.map(c=>c.id);
+  if (path === 'all') return allChannels.map(c => c.id);
   if (path === '__uncategorized') {
-    const assigned = new Set(allAssignedIds());
-    return allChannels.filter(c=>!assigned.has(c.id)).map(c=>c.id);
+    const assigned = new Set(allAssignedIds(categories));
+    return allChannels.filter(c => !assigned.has(c.id)).map(c => c.id);
   }
-  const cat = findCatByPath(path);
+  const cat = findCatByPath(path, categories);
   return cat ? getAllChannelIds(cat) : [];
-}
-
-// Which category path is a channel in?
-function getChannelCategoryPath(channelId, tree = categories, prefix = '') {
-  for (const c of tree) {
-    const path = prefix ? `${prefix}/${c.name}` : c.name;
-    if ((c.channelIds||[]).includes(channelId)) return path;
-    const found = getChannelCategoryPath(channelId, c.children, path);
-    if (found) return found;
-  }
-  return null;
 }
 
 function addCategory(name, parentPath = null) {
   if (!name) return;
-  let list = categories;
-  if (parentPath) {
-    const parent = findCatByPath(parentPath);
-    if (!parent) return;
-    list = parent.children;
-  }
-  if (list.some(c=>c.name===name)) return;
-  list.push({name, channelIds:[], collapsed:false, children:[]});
-  saveCategories(); renderSidebar(); renderFilterPills();
+  if (addCategoryToTree(name, parentPath, categories))
+    { saveCategories(); renderSidebar(); renderFilterPills(); }
 }
 
 function removeCategory(path) {
-  const info = findCatParent(path);
-  if (!info) return;
-  info.list.splice(info.idx, 1);
-  [...collapsedPaths].filter(p => p === path || p.startsWith(path + '/')).forEach(p => collapsedPaths.delete(p));
+  const result = removeCategoryFromTree(path, categories, collapsedPaths);
+  if (!result.removed) return;
+  collapsedPaths = result.collapsedPaths;
   saveCollapsedPaths();
   saveCategories(); renderSidebar(); renderFilterPills();
-  if (activeCategory === path || activeCategory.startsWith(path+'/')) { activeCategory = 'all'; renderFeed(); }
+  if (activeCategory === path || activeCategory.startsWith(path + '/')) { activeCategory = 'all'; renderFeed(); }
 }
 
 function renameCategory(path, newName) {
   if (!newName || !newName.trim()) return;
-  newName = newName.trim().toLowerCase();
-  const info = findCatParent(path);
-  if (!info) return;
-  // Check for duplicates in same parent
-  if (info.list.some(c=>c.name===newName && c !== info.list[info.idx])) return;
-  const oldName = info.list[info.idx].name;
-  info.list[info.idx].name = newName;
-  // Update activeCategory if it referenced the old path
-  const newPath = path.replace(new RegExp('(^|/)'+escRegex(oldName)+'$'), '$1'+newName);
-  if (activeCategory === path) activeCategory = newPath;
-  updateCollapsedPathPrefix(path, newPath);
+  const result = renameCategoryInTree(path, newName, categories, collapsedPaths);
+  if (!result) return;
+  if (activeCategory === path) activeCategory = result.newPath;
+  collapsedPaths = result.collapsedPaths;
   saveCollapsedPaths();
   saveCategories(); renderSidebar(); renderFilterPills();
 }
-
-function escRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
 
 function toggleCategory(path) {
   if (collapsedPaths.has(path)) {
@@ -250,37 +159,14 @@ function toggleCategory(path) {
 }
 
 function moveChannelToCategory(channelId, categoryPath) {
-  // Remove from all categories
-  function removeFrom(list) { for (const c of list) { c.channelIds = c.channelIds.filter(id=>id!==channelId); removeFrom(c.children); } }
-  removeFrom(categories);
-  // Add to target
-  if (categoryPath) {
-    const cat = findCatByPath(categoryPath);
-    if (cat && !cat.channelIds.includes(channelId)) cat.channelIds.push(channelId);
-  }
+  moveChannelInTree(channelId, categoryPath, categories);
   saveCategories(); renderSidebar(); renderFilterPills();
 }
 
 function moveCategoryTo(sourcePath, targetPath) {
-  // Move a category to be a child of another, or to root if targetPath is null
-  if (sourcePath === targetPath) return;
-  if (targetPath && targetPath.startsWith(sourcePath+'/')) return; // Can't nest into own child
-
-  const srcInfo = findCatParent(sourcePath);
-  if (!srcInfo) return;
-  const catNode = srcInfo.list.splice(srcInfo.idx, 1)[0];
-
-  if (targetPath) {
-    const parent = findCatByPath(targetPath);
-    if (!parent) { srcInfo.list.splice(srcInfo.idx, 0, catNode); return; } // Put it back
-    if (parent.children.some(c=>c.name===catNode.name)) { srcInfo.list.splice(srcInfo.idx, 0, catNode); return; }
-    parent.children.push(catNode);
-  } else {
-    if (categories.some(c=>c.name===catNode.name)) { srcInfo.list.splice(srcInfo.idx, 0, catNode); return; }
-    categories.push(catNode);
-  }
-  const newPath = targetPath ? `${targetPath}/${catNode.name}` : catNode.name;
-  updateCollapsedPathPrefix(sourcePath, newPath);
+  const result = moveCategoryInTree(sourcePath, targetPath, categories, collapsedPaths);
+  if (!result) return;
+  collapsedPaths = result.collapsedPaths;
   saveCollapsedPaths();
   saveCategories(); renderSidebar(); renderFilterPills();
 }
@@ -490,7 +376,7 @@ function renderSidebar() {
   renderCatTree(categories, list, '');
 
   // Uncategorized
-  const assigned = new Set(allAssignedIds());
+  const assigned = new Set(allAssignedIds(categories));
   const uncategorized = allChannels.filter(c=>!assigned.has(c.id));
 
   if (uncategorized.length) {
@@ -716,7 +602,7 @@ function makeChannelItem(id, name, avatar, isActive) {
   li.addEventListener('click', () => {
     activeChannel = id;
     activePlaylist = null;
-    activeCategory = id ? (getChannelCategoryPath(id) || 'all') : 'all';
+    activeCategory = id ? (getChannelCategoryPath(id, categories) || 'all') : 'all';
     document.querySelectorAll('.channel-item,.cat-header').forEach(el=>el.classList.remove('active'));
     li.classList.add('active'); renderFeed();
   });
@@ -818,7 +704,7 @@ function renderFilterPills() {
   container.appendChild(allBtn);
 
   // Top-level categories only as pills; nested shown as parent/child
-  const flat = flattenCats();
+  const flat = flattenCats(categories);
   for (const {path} of flat) {
     const btn = document.createElement('button');
     btn.className = 'pill' + (path===activeCategory ? ' active' : '');
@@ -881,7 +767,6 @@ function renderPlaylistList() {
     list.appendChild(li);
   }
 }
-function closeSettings() { document.getElementById('settings-overlay').classList.add('hidden'); }
 
 document.getElementById('open-settings').addEventListener('click', openSettings);
 document.getElementById('close-settings').addEventListener('click', closeSettings);
