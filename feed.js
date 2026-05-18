@@ -9,13 +9,15 @@ const CAT_KEY = 'watchful_categories';
 const PL_KEY = 'watchful_playlists';
 const VPC_KEY = 'watchful_vids_per_channel';
 const FOCUS_KEY = 'watchful_focus_enabled';
+const COLLAPSED_KEY = 'watchful_collapsed_paths';
 const CACHE_TTL = 15 * 60 * 1000;
 
 let allVideos = [], allChannels = [];
 let activeChannel = null, activeCategory = 'all', activePlaylist = null, searchQuery = '';
 let authToken = null, settings = {};
-let categories = []; // tree: [{name, channelIds, collapsed, children:[...]}]
+let categories = []; // tree: [{name, channelIds, children:[...]}]
 let playlists = []; // [{id, name, itemCount}]
+let collapsedPaths = new Set(); // set of category path strings that are collapsed
 let vidsPerChannel = 5;
 let focusEnabled = true; // whether watch page focus mode is active
 
@@ -24,6 +26,7 @@ let focusEnabled = true; // whether watch page focus mode is active
 async function init() {
   settings = await getSettings();
   categories = await loadCategories();
+  collapsedPaths = await loadCollapsedPaths();
   playlists = await loadPlaylists();
   vidsPerChannel = await loadVidsPerChannel();
   focusEnabled = await loadFocusEnabled();
@@ -76,6 +79,35 @@ async function loadCategories() {
 }
 async function saveCategories() {
   await new Promise(r => chrome.storage.local.set({[CAT_KEY]:categories}, r));
+}
+async function loadCollapsedPaths() {
+  return new Promise(r => chrome.storage.local.get([COLLAPSED_KEY], d => {
+    if (d[COLLAPSED_KEY]) {
+      r(new Set(d[COLLAPSED_KEY]));
+    } else {
+      // One-time migration: collect paths where cat.collapsed was true in old data
+      const migrated = new Set();
+      function collect(tree, prefix) {
+        for (const c of tree) {
+          const path = prefix ? `${prefix}/${c.name}` : c.name;
+          if (c.collapsed) migrated.add(path);
+          collect(c.children || [], path);
+        }
+      }
+      collect(categories, '');
+      r(migrated);
+    }
+  }));
+}
+async function saveCollapsedPaths() {
+  await new Promise(r => chrome.storage.local.set({[COLLAPSED_KEY]: [...collapsedPaths]}, r));
+}
+function updateCollapsedPathPrefix(oldPrefix, newPrefix) {
+  const affected = [...collapsedPaths].filter(p => p === oldPrefix || p.startsWith(oldPrefix + '/'));
+  for (const p of affected) {
+    collapsedPaths.delete(p);
+    collapsedPaths.add(newPrefix + p.slice(oldPrefix.length));
+  }
 }
 
 // ── Category tree helpers ───────────────────────────────────────────────────
@@ -182,6 +214,8 @@ function removeCategory(path) {
   const info = findCatParent(path);
   if (!info) return;
   info.list.splice(info.idx, 1);
+  [...collapsedPaths].filter(p => p === path || p.startsWith(path + '/')).forEach(p => collapsedPaths.delete(p));
+  saveCollapsedPaths();
   saveCategories(); renderSidebar(); renderFilterPills();
   if (activeCategory === path || activeCategory.startsWith(path+'/')) { activeCategory = 'all'; renderFeed(); }
 }
@@ -198,14 +232,21 @@ function renameCategory(path, newName) {
   // Update activeCategory if it referenced the old path
   const newPath = path.replace(new RegExp('(^|/)'+escRegex(oldName)+'$'), '$1'+newName);
   if (activeCategory === path) activeCategory = newPath;
+  updateCollapsedPathPrefix(path, newPath);
+  saveCollapsedPaths();
   saveCategories(); renderSidebar(); renderFilterPills();
 }
 
 function escRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
 
 function toggleCategory(path) {
-  const cat = findCatByPath(path);
-  if (cat) { cat.collapsed = !cat.collapsed; saveCategories(); renderSidebar(); }
+  if (collapsedPaths.has(path)) {
+    collapsedPaths.delete(path);
+  } else {
+    collapsedPaths.add(path);
+  }
+  saveCollapsedPaths();
+  renderSidebar();
 }
 
 function moveChannelToCategory(channelId, categoryPath) {
@@ -238,6 +279,9 @@ function moveCategoryTo(sourcePath, targetPath) {
     if (categories.some(c=>c.name===catNode.name)) { srcInfo.list.splice(srcInfo.idx, 0, catNode); return; }
     categories.push(catNode);
   }
+  const newPath = targetPath ? `${targetPath}/${catNode.name}` : catNode.name;
+  updateCollapsedPathPrefix(sourcePath, newPath);
+  saveCollapsedPaths();
   saveCategories(); renderSidebar(); renderFilterPills();
 }
 
@@ -523,7 +567,8 @@ function renderCatTree(tree, container, parentPath, depth = 0) {
     const toggle = document.createElement('span');
     toggle.className = 'cat-toggle';
     const hasContent = (cat.channelIds.length > 0 || cat.children.length > 0);
-    toggle.textContent = hasContent ? (cat.collapsed ? '▸' : '▾') : ' ';
+    const isCollapsed = collapsedPaths.has(path);
+    toggle.textContent = hasContent ? (isCollapsed ? '▸' : '▾') : ' ';
     toggle.addEventListener('click', e => { e.stopPropagation(); toggleCategory(path); });
 
     const label = document.createElement('span');
@@ -587,7 +632,7 @@ function renderCatTree(tree, container, parentPath, depth = 0) {
     group.appendChild(header);
 
     // Children (channels + subcategories)
-    if (!cat.collapsed) {
+    if (!isCollapsed) {
       // Subcategories first
       if (cat.children.length) renderCatTree(cat.children, group, path, depth + 1);
       // Then channels
@@ -955,6 +1000,7 @@ document.getElementById('export-settings-btn').addEventListener('click', () => {
     playlists,
     vids_per_channel: vidsPerChannel,
     focus_enabled: focusEnabled,
+    collapsed_paths: [...collapsedPaths],
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
   const url = URL.createObjectURL(blob);
@@ -996,6 +1042,21 @@ document.getElementById('import-file-input').addEventListener('change', async e 
     }
 
     if (data.categories) { categories = migrate(data.categories); await saveCategories(); }
+    if (data.collapsed_paths && Array.isArray(data.collapsed_paths)) {
+      collapsedPaths = new Set(data.collapsed_paths);
+    } else if (data.categories) {
+      // Old export format: migrate from cat.collapsed fields
+      collapsedPaths = new Set();
+      function collectCollapsed(tree, prefix) {
+        for (const c of tree) {
+          const path = prefix ? `${prefix}/${c.name}` : c.name;
+          if (c.collapsed) collapsedPaths.add(path);
+          collectCollapsed(c.children || [], path);
+        }
+      }
+      collectCollapsed(categories, '');
+    }
+    if (data.categories || data.collapsed_paths) await saveCollapsedPaths();
     if (data.playlists) { playlists = data.playlists; await savePlaylists(); }
     if (data.vids_per_channel) {
       vidsPerChannel = Math.max(1, Math.min(50, parseInt(data.vids_per_channel) || 5));
