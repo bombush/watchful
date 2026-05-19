@@ -778,6 +778,20 @@ html, body {
 .cat-header[draggable="true"]:active { cursor: grabbing; }
 .cat-header.dragging { opacity: 0.3; }
 
+/* Root-level gap drop zones — thin hit targets between top-level categories.
+   Kept small so spacing stays close to the original; on drag-over the bar
+   fills with accent so the drop location is obvious. */
+.drop-gap {
+  list-style: none;
+  height: 4px;
+  margin: 0 6px;
+  border-radius: 2px;
+  transition: background 0.12s;
+}
+.drop-gap.drag-over {
+  background: var(--accent);
+}
+
 /* ── Playlist list in settings ─────────────────────────────────────────────── */
 
 .playlist-list {

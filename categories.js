@@ -154,7 +154,7 @@ export function moveChannelInTree(channelId, categoryPath, categories) {
 
 // Moves a category to be a child of targetPath (or to root if targetPath is null).
 // Returns { newPath, collapsedPaths } on success, null on failure/no-op.
-export function moveCategoryInTree(sourcePath, targetPath, categories, collapsedPaths) {
+export function moveCategoryInTree(sourcePath, targetPath, categories, collapsedPaths, insertIndex) {
   if (sourcePath === targetPath) return null;
   if (targetPath && targetPath.startsWith(sourcePath + '/')) return null;
 
@@ -169,7 +169,10 @@ export function moveCategoryInTree(sourcePath, targetPath, categories, collapsed
     parent.children.push(catNode);
   } else {
     if (categories.some(c => c.name === catNode.name)) { srcInfo.list.splice(srcInfo.idx, 0, catNode); return null; }
-    categories.push(catNode);
+    let idx = (insertIndex !== undefined) ? insertIndex : categories.length;
+    if (srcInfo.list === categories && srcInfo.idx < idx) idx--;
+    idx = Math.max(0, Math.min(idx, categories.length));
+    categories.splice(idx, 0, catNode);
   }
 
   const newPath = targetPath ? `${targetPath}/${catNode.name}` : catNode.name;

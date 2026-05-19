@@ -163,8 +163,8 @@ function moveChannelToCategory(channelId, categoryPath) {
   saveCategories(); renderSidebar(); renderFilterPills();
 }
 
-function moveCategoryTo(sourcePath, targetPath) {
-  const result = moveCategoryInTree(sourcePath, targetPath, categories, collapsedPaths);
+function moveCategoryTo(sourcePath, targetPath, insertIndex) {
+  const result = moveCategoryInTree(sourcePath, targetPath, categories, collapsedPaths, insertIndex);
   if (!result) return;
   collapsedPaths = result.collapsedPaths;
   saveCollapsedPaths();
@@ -438,7 +438,11 @@ function renderSidebar() {
 }
 
 function renderCatTree(tree, container, parentPath, depth = 0) {
-  for (const cat of tree) {
+  tree.forEach((cat, idx) => {
+    // Insert a gap drop zone before each root-level category so items can be
+    // reordered and nested categories can be promoted back to root.
+    if (depth === 0) container.appendChild(makeGapDropZone(idx));
+
     const path = parentPath ? `${parentPath}/${cat.name}` : cat.name;
     const group = document.createElement('li');
     group.className = 'cat-group';
@@ -530,7 +534,10 @@ function renderCatTree(tree, container, parentPath, depth = 0) {
     }
 
     container.appendChild(group);
-  }
+  });
+
+  // Trailing gap after the last root-level category (allows drop at end)
+  if (depth === 0 && tree.length > 0) container.appendChild(makeGapDropZone(tree.length));
 }
 
 function makeDraggableChannel(ch, depth = 0) {
@@ -544,6 +551,29 @@ function makeDraggableChannel(ch, depth = 0) {
   });
   item.addEventListener('dragend', () => item.classList.remove('dragging'));
   return item;
+}
+
+function makeGapDropZone(insertIndex) {
+  const gap = document.createElement('li');
+  gap.className = 'drop-gap';
+  gap.addEventListener('dragover', e => {
+    const isCat = e.dataTransfer.types.includes('application/x-watchful-cat');
+    const isCh  = e.dataTransfer.types.includes('text/plain');
+    if (!isCat && !isCh) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    gap.classList.add('drag-over');
+  });
+  gap.addEventListener('dragleave', () => gap.classList.remove('drag-over'));
+  gap.addEventListener('drop', e => {
+    e.preventDefault();
+    gap.classList.remove('drag-over');
+    const catPath = e.dataTransfer.getData('application/x-watchful-cat');
+    const chId   = e.dataTransfer.getData('text/plain');
+    if (catPath) moveCategoryTo(catPath, null, insertIndex);
+    else if (chId) moveChannelToCategory(chId, null); // null = uncategorized
+  });
+  return gap;
 }
 
 function makeDropZone(el, categoryPath) {
